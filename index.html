@@ -65,6 +65,7 @@
   }
 
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }
   html, body {
     margin: 0;
     padding: 0;
@@ -336,6 +337,60 @@
     margin-bottom: 16px;
   }
   .form-error.is-visible { display: block; }
+
+  /* Screenshot field */
+  .shot-preview {
+    position: relative;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+  .shot-preview img {
+    display: block;
+    width: 100%;
+    max-height: 260px;
+    object-fit: contain;
+    cursor: zoom-in;
+  }
+  .shot-remove {
+    position: absolute;
+    top: 8px; right: 8px;
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(9,9,9,0.72);
+    color: var(--text);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+
+  /* History thumbnail */
+  .entry-thumb {
+    flex: none;
+    width: 44px; height: 44px;
+    border-radius: var(--radius-sm);
+    object-fit: cover;
+    border: 1px solid var(--border);
+  }
+
+  /* Lightbox */
+  .lightbox {
+    position: fixed;
+    inset: 0;
+    background: rgba(5,5,5,0.94);
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: calc(var(--safe-top) + 20px) 20px calc(var(--safe-bottom) + 20px);
+  }
+  .lightbox[hidden] { display: none; }
+  .lightbox img {
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: var(--radius-md);
+  }
 
   /* History */
   .search-wrap { position: relative; margin-bottom: 12px; }
@@ -635,13 +690,20 @@
 
   <div class="toast" id="toast"></div>
 
+  <div class="lightbox" id="lightbox" hidden>
+    <img id="lightboxImg" alt="Screenshot">
+  </div>
+
 </div>
 
 <script>
 (function () {
   'use strict';
 
-  var STORAGE_KEY = 'dryrun_entries_v1';
+  var OLD_STORAGE_KEY = 'dryrun_entries_v1';
+  var DB_NAME = 'dryrun_db';
+  var DB_VERSION = 1;
+  var STORE = 'entries';
 
   function uid() {
     if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -654,22 +716,77 @@
     return local.toISOString().slice(0, 10);
   }
 
-  function loadEntries() {
-    try {
-      var raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return [];
-      var parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch (e) {
-      return [];
-    }
+  // ---------- storage (IndexedDB — entries can carry a screenshot Blob, which is too large for localStorage's ~5MB quota) ----------
+
+  var dbPromise = null;
+  function openDb() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise(function (resolve, reject) {
+      var req = indexedDB.open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = function () {
+        var db = req.result;
+        if (!db.objectStoreNames.contains(STORE)) {
+          db.createObjectStore(STORE, { keyPath: 'id' });
+        }
+      };
+      req.onsuccess = function () { resolve(req.result); };
+      req.onerror = function () { reject(req.error); };
+    });
+    return dbPromise;
   }
 
-  function saveEntries() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+  function dbGetAll() {
+    return openDb().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(STORE, 'readonly');
+        var req = tx.objectStore(STORE).getAll();
+        req.onsuccess = function () { resolve(req.result); };
+        req.onerror = function () { reject(req.error); };
+      });
+    });
   }
 
-  var entries = loadEntries();
+  function dbPut(entry) {
+    return openDb().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).put(entry);
+        tx.oncomplete = function () { resolve(); };
+        tx.onerror = function () { reject(tx.error); };
+      });
+    });
+  }
+
+  function dbDelete(id) {
+    return openDb().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).delete(id);
+        tx.oncomplete = function () { resolve(); };
+        tx.onerror = function () { reject(tx.error); };
+      });
+    });
+  }
+
+  function migrateFromLocalStorageIfNeeded() {
+    return dbGetAll().then(function (existing) {
+      if (existing.length > 0) return null;
+      var raw;
+      try { raw = localStorage.getItem(OLD_STORAGE_KEY); } catch (e) { return null; }
+      if (!raw) return null;
+      var old;
+      try { old = JSON.parse(raw); } catch (e) { return null; }
+      if (!Array.isArray(old) || old.length === 0) return null;
+      return Promise.all(old.map(function (e) {
+        e.screenshot = null;
+        return dbPut(e);
+      })).then(function () {
+        try { localStorage.removeItem(OLD_STORAGE_KEY); } catch (e) {}
+      });
+    });
+  }
+
+  var entries = [];
   var currentTab = 'dashboard';
   var historyFilter = 'all';
   var historyQuery = '';
@@ -703,6 +820,17 @@
         '<input class="input" type="number" id="' + prefix + '-rmultiple" placeholder="e.g. 2.3 or -1" step="0.1" inputmode="decimal">' +
       '</div>' +
       '<div class="field">' +
+        '<label>Chart Screenshot <span style="text-transform:none;opacity:.7">(optional)</span></label>' +
+        '<input type="file" accept="image/*" id="' + prefix + '-shot-input" style="display:none">' +
+        '<button type="button" class="btn btn-ghost" id="' + prefix + '-shot-pick-btn">Add Screenshot</button>' +
+        '<div class="shot-preview" id="' + prefix + '-shot-preview" hidden>' +
+          '<img id="' + prefix + '-shot-img" alt="Attached screenshot">' +
+          '<button type="button" class="shot-remove" id="' + prefix + '-shot-remove" aria-label="Remove screenshot">' +
+            '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>' +
+          '</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="field">' +
         '<label for="' + prefix + '-notes">Notes <span style="text-transform:none;opacity:.7">(optional)</span></label>' +
         '<textarea class="input" id="' + prefix + '-notes" placeholder="What happened, what you learned…"></textarea>' +
       '</div>'
@@ -726,6 +854,96 @@
   }
   wireResultButtons('log');
   wireResultButtons('edit');
+
+  // ---------- screenshot field ----------
+
+  var pendingScreenshot = { log: null, edit: null };
+  var previewObjectUrls = { log: null, edit: null };
+
+  function readAndCompressImage(file, maxDim, quality) {
+    return new Promise(function (resolve, reject) {
+      var objUrl = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function () {
+        var width = img.naturalWidth, height = img.naturalHeight;
+        if (width > maxDim || height > maxDim) {
+          if (width >= height) { height = Math.round(height * (maxDim / width)); width = maxDim; }
+          else { width = Math.round(width * (maxDim / height)); height = maxDim; }
+        }
+        var canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        URL.revokeObjectURL(objUrl);
+        canvas.toBlob(function (blob) {
+          if (blob) resolve(blob); else reject(new Error('compress failed'));
+        }, 'image/jpeg', quality);
+      };
+      img.onerror = function () { URL.revokeObjectURL(objUrl); reject(new Error('could not read image')); };
+      img.src = objUrl;
+    });
+  }
+
+  function setScreenshotPreview(prefix, blob) {
+    var previewEl = document.getElementById(prefix + '-shot-preview');
+    var pickBtn = document.getElementById(prefix + '-shot-pick-btn');
+    var imgEl = document.getElementById(prefix + '-shot-img');
+    if (previewObjectUrls[prefix]) {
+      URL.revokeObjectURL(previewObjectUrls[prefix]);
+      previewObjectUrls[prefix] = null;
+    }
+    if (blob) {
+      var url = URL.createObjectURL(blob);
+      previewObjectUrls[prefix] = url;
+      imgEl.src = url;
+      previewEl.hidden = false;
+      pickBtn.hidden = true;
+    } else {
+      imgEl.removeAttribute('src');
+      previewEl.hidden = true;
+      pickBtn.hidden = false;
+    }
+  }
+
+  function wireScreenshotField(prefix) {
+    var fileInput = document.getElementById(prefix + '-shot-input');
+    var pickBtn = document.getElementById(prefix + '-shot-pick-btn');
+    var removeBtn = document.getElementById(prefix + '-shot-remove');
+    var imgEl = document.getElementById(prefix + '-shot-img');
+
+    pickBtn.addEventListener('click', function () { fileInput.click(); });
+
+    fileInput.addEventListener('change', function () {
+      var file = fileInput.files[0];
+      fileInput.value = '';
+      if (!file) return;
+      readAndCompressImage(file, 1280, 0.78).then(function (blob) {
+        pendingScreenshot[prefix] = blob;
+        setScreenshotPreview(prefix, blob);
+      }).catch(function () {
+        showFormError(prefix, 'Could not read that image — try a different photo.');
+      });
+    });
+
+    removeBtn.addEventListener('click', function () {
+      pendingScreenshot[prefix] = null;
+      setScreenshotPreview(prefix, null);
+    });
+
+    imgEl.addEventListener('click', function () {
+      openLightbox(imgEl.src);
+    });
+  }
+  wireScreenshotField('log');
+  wireScreenshotField('edit');
+
+  function openLightbox(src) {
+    document.getElementById('lightboxImg').src = src;
+    document.getElementById('lightbox').hidden = false;
+  }
+  document.getElementById('lightbox').addEventListener('click', function () {
+    document.getElementById('lightbox').hidden = true;
+  });
 
   function getResultValue(prefix) {
     return document.getElementById(prefix + '-result').dataset.value || '';
@@ -756,6 +974,8 @@
     setResultValue(prefix, entry.result);
     document.getElementById(prefix + '-rmultiple').value = entry.rMultiple === null || entry.rMultiple === undefined ? '' : entry.rMultiple;
     document.getElementById(prefix + '-notes').value = entry.notes || '';
+    pendingScreenshot[prefix] = entry.screenshot || null;
+    setScreenshotPreview(prefix, pendingScreenshot[prefix]);
   }
 
   function clearForm(prefix) {
@@ -765,6 +985,8 @@
     setResultValue(prefix, '');
     document.getElementById(prefix + '-rmultiple').value = '';
     document.getElementById(prefix + '-notes').value = '';
+    pendingScreenshot[prefix] = null;
+    setScreenshotPreview(prefix, null);
   }
 
   function validateForm(data) {
@@ -800,7 +1022,7 @@
     if (err) { showFormError('log', err); return; }
     hideFormError('log');
 
-    entries.push({
+    var newEntry = {
       id: uid(),
       date: data.date,
       symbol: data.symbol.toUpperCase(),
@@ -808,13 +1030,18 @@
       result: data.result,
       rMultiple: data.rMultiple === '' ? null : parseFloat(data.rMultiple),
       notes: data.notes,
+      screenshot: pendingScreenshot.log,
       createdAt: Date.now(),
       updatedAt: Date.now()
+    };
+    dbPut(newEntry).then(function () {
+      entries.push(newEntry);
+      clearForm('log');
+      renderAll();
+      toast('Test saved');
+    }).catch(function () {
+      showFormError('log', 'Could not save — try again.');
     });
-    saveEntries();
-    clearForm('log');
-    renderAll();
-    toast('Test saved');
   });
 
   // ---------- Edit modal ----------
@@ -842,28 +1069,39 @@
 
     var entry = entries.find(function (e) { return e.id === editingId; });
     if (!entry) return;
-    entry.date = data.date;
-    entry.symbol = data.symbol.toUpperCase();
-    entry.strategy = data.strategy;
-    entry.result = data.result;
-    entry.rMultiple = data.rMultiple === '' ? null : parseFloat(data.rMultiple);
-    entry.notes = data.notes;
-    entry.updatedAt = Date.now();
+    var updated = {
+      id: entry.id,
+      date: data.date,
+      symbol: data.symbol.toUpperCase(),
+      strategy: data.strategy,
+      result: data.result,
+      rMultiple: data.rMultiple === '' ? null : parseFloat(data.rMultiple),
+      notes: data.notes,
+      screenshot: pendingScreenshot.edit,
+      createdAt: entry.createdAt,
+      updatedAt: Date.now()
+    };
 
-    saveEntries();
-    closeEditModal();
-    renderAll();
-    toast('Changes saved');
+    dbPut(updated).then(function () {
+      Object.assign(entry, updated);
+      closeEditModal();
+      renderAll();
+      toast('Changes saved');
+    }).catch(function () {
+      showFormError('edit', 'Could not save — try again.');
+    });
   });
 
   document.getElementById('editDeleteBtn').addEventListener('click', function () {
     if (!editingId) return;
     if (!window.confirm('Delete this forward test? This can\'t be undone.')) return;
-    entries = entries.filter(function (e) { return e.id !== editingId; });
-    saveEntries();
-    closeEditModal();
-    renderAll();
-    toast('Test deleted');
+    var idToDelete = editingId;
+    dbDelete(idToDelete).then(function () {
+      entries = entries.filter(function (e) { return e.id !== idToDelete; });
+      closeEditModal();
+      renderAll();
+      toast('Test deleted');
+    });
   });
 
   // ---------- tabs ----------
@@ -976,7 +1214,12 @@
     }).join('');
   }
 
+  var historyThumbUrls = [];
+
   function renderHistory() {
+    historyThumbUrls.forEach(function (u) { URL.revokeObjectURL(u); });
+    historyThumbUrls = [];
+
     var q = historyQuery.trim().toLowerCase();
     var filtered = entries.filter(function (e) {
       if (historyFilter !== 'all' && e.result !== historyFilter) return false;
@@ -1003,6 +1246,12 @@
 
     listEl.innerHTML = filtered.map(function (e) {
       var rClass = e.result === 'win' ? 'win' : e.result === 'loss' ? 'loss' : '';
+      var thumbHtml = '';
+      if (e.screenshot) {
+        var url = URL.createObjectURL(e.screenshot);
+        historyThumbUrls.push(url);
+        thumbHtml = '<img class="entry-thumb" src="' + url + '" alt="">';
+      }
       return (
         '<div class="entry-card" data-id="' + e.id + '">' +
           '<div class="entry-main">' +
@@ -1016,6 +1265,7 @@
           '<div class="entry-side">' +
             '<div class="entry-r ' + rClass + '">' + formatR(e.rMultiple) + '</div>' +
           '</div>' +
+          thumbHtml +
           '<svg class="entry-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>' +
         '</div>'
       );
@@ -1048,7 +1298,22 @@
 
   // ---------- init ----------
   document.getElementById('log-date').value = todayISO();
-  renderAll();
+
+  migrateFromLocalStorageIfNeeded()
+    .catch(function () {})
+    .then(function () { return dbGetAll(); })
+    .then(function (loaded) {
+      entries = loaded;
+      renderAll();
+    })
+    .catch(function () {
+      entries = [];
+      renderAll();
+    });
+
+  if (navigator.storage && navigator.storage.persist) {
+    navigator.storage.persist().catch(function () {});
+  }
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
