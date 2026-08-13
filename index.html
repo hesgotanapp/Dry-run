@@ -1,0 +1,1061 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>Dry Run — Forward Testing Tracker</title>
+<meta name="description" content="Log and review forward-testing results. See your win rate at a glance.">
+
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#090909">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Dry Run">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+
+<style>
+  @font-face {
+    font-family: 'Plus Jakarta Sans';
+    src: url('fonts/plus-jakarta-sans-variable.woff2') format('woff2');
+    font-weight: 400 800;
+    font-style: normal;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('fonts/jetbrains-mono-variable.woff2') format('woff2');
+    font-weight: 400 700;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  :root {
+    --bg: #090909;
+    --surface: #111112;
+    --surface-2: #161617;
+    --border: rgba(255,255,255,0.08);
+    --border-strong: rgba(255,255,255,0.14);
+
+    --accent: #30d68a;
+    --accent-ink: #06140d;
+
+    --win: #30d68a;
+    --loss: #ef6a5f;
+    --breakeven: #f0954a;
+
+    --text: #f5f6f5;
+    --text-muted: rgba(245,246,245,0.58);
+    --text-faint: rgba(245,246,245,0.36);
+
+    --radius-lg: 16px;
+    --radius-md: 12px;
+    --radius-sm: 8px;
+    --radius-pill: 999px;
+
+    --font-ui: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+
+    --header-h: 52px;
+    --tabbar-h: 60px;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-ui);
+    height: 100%;
+    overscroll-behavior-y: none;
+  }
+  body {
+    font-size: 15px;
+    line-height: 1.4;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, p { margin: 0; }
+  button, input, textarea { font-family: inherit; color: inherit; }
+  input, textarea { font-size: 16px; }
+  ::placeholder { color: var(--text-faint); }
+  button { touch-action: manipulation; }
+  a { color: var(--accent); }
+
+  #app { min-height: 100%; }
+
+  /* Header */
+  .topbar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: calc(var(--header-h) + var(--safe-top));
+    padding-top: var(--safe-top);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-left: 18px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    z-index: 20;
+    user-select: none;
+  }
+  .brand-mark { flex: none; display: block; }
+  .brand-name {
+    font-weight: 700;
+    font-size: 17px;
+    letter-spacing: -0.01em;
+  }
+
+  /* Main / screens */
+  main {
+    padding-top: calc(var(--header-h) + var(--safe-top));
+    padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 20px);
+    min-height: 100%;
+  }
+  .screen { display: none; padding: 20px 18px 0; }
+  .screen.active { display: block; }
+  .screen-title {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    margin-bottom: 16px;
+  }
+
+  /* Cards */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 18px;
+  }
+  .card + .card { margin-top: 12px; }
+
+  /* Dashboard hero */
+  .hero {
+    text-align: center;
+    padding: 28px 18px 24px;
+  }
+  .hero-value {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 56px;
+    letter-spacing: -0.02em;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .hero-value.is-empty { color: var(--text-faint); }
+  .hero-label {
+    margin-top: 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-top: 14px;
+  }
+  .stat-tile {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 12px 6px;
+    text-align: center;
+  }
+  .stat-tile .n {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 19px;
+  }
+  .stat-tile .l {
+    margin-top: 3px;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .stat-tile.win .n { color: var(--win); }
+  .stat-tile.loss .n { color: var(--loss); }
+  .stat-tile.breakeven .n { color: var(--breakeven); }
+
+  .section-label {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin: 24px 2px 10px;
+  }
+
+  .strategy-row + .strategy-row { margin-top: 10px; }
+  .strategy-row-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .strategy-name {
+    font-weight: 600;
+    font-size: 14.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .strategy-meta {
+    flex: none;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .strategy-meta b { color: var(--text); font-weight: 700; }
+  .strategy-bar {
+    margin-top: 7px;
+    height: 6px;
+    border-radius: var(--radius-pill);
+    background: var(--surface-2);
+    overflow: hidden;
+  }
+  .strategy-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: var(--radius-pill);
+  }
+
+  /* Empty states */
+  .empty-state {
+    text-align: center;
+    padding: 48px 20px;
+    color: var(--text-muted);
+  }
+  .empty-state p { margin-bottom: 18px; font-size: 14.5px; }
+
+  /* Buttons */
+  .btn {
+    -webkit-appearance: none;
+    appearance: none;
+    border: none;
+    border-radius: var(--radius-md);
+    min-height: 46px;
+    padding: 0 18px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+  .btn:active { opacity: 0.75; }
+  .btn-primary { background: var(--accent); color: var(--accent-ink); }
+  .btn-block { width: 100%; }
+  .btn-ghost {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+  }
+  .btn-danger-ghost {
+    background: transparent;
+    color: var(--loss);
+    border: 1px solid rgba(239,106,95,0.35);
+  }
+  .btn-sm { min-height: 40px; padding: 0 14px; font-size: 13.5px; }
+
+  /* Forms */
+  .field { margin-bottom: 16px; }
+  .field label {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 7px;
+  }
+  .input, textarea.input {
+    width: 100%;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text);
+    min-height: 46px;
+    padding: 0 14px;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  textarea.input { min-height: 84px; padding: 12px 14px; resize: vertical; line-height: 1.4; }
+  .input:focus, textarea.input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(48,214,138,0.16);
+  }
+  input[type="date"].input { color-scheme: dark; }
+
+  .segmented {
+    display: flex;
+    gap: 8px;
+  }
+  .seg-btn {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    min-height: 46px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text-muted);
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .seg-btn:active { opacity: 0.8; }
+  .seg-btn[data-value="win"].is-selected { background: var(--win); border-color: var(--win); color: #06140d; }
+  .seg-btn[data-value="loss"].is-selected { background: var(--loss); border-color: var(--loss); color: #1a0704; }
+  .seg-btn[data-value="breakeven"].is-selected { background: var(--breakeven); border-color: var(--breakeven); color: #1c0f02; }
+
+  .form-error {
+    display: none;
+    background: rgba(239,106,95,0.12);
+    border: 1px solid rgba(239,106,95,0.35);
+    color: var(--loss);
+    border-radius: var(--radius-md);
+    padding: 10px 14px;
+    font-size: 13.5px;
+    font-weight: 600;
+    margin-bottom: 16px;
+  }
+  .form-error.is-visible { display: block; }
+
+  /* History */
+  .search-wrap { position: relative; margin-bottom: 12px; }
+  .search-wrap svg { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--text-faint); pointer-events: none; }
+  #historySearch { padding-left: 40px; padding-right: 46px; }
+  .search-clear {
+    position: absolute; right: 1px; top: 50%; transform: translateY(-50%);
+    width: 44px; height: 44px; border-radius: 50%;
+    display: none; align-items: center; justify-content: center;
+    background: transparent; border: none; color: var(--text-faint);
+  }
+  .search-clear.is-visible { display: flex; }
+
+  .chip-row { display: flex; gap: 8px; margin-bottom: 18px; }
+  .chip {
+    -webkit-appearance: none;
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text-muted);
+    border-radius: var(--radius-pill);
+    padding: 0 16px;
+    height: 44px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .chip.is-active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+
+  .entry-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 14px 14px;
+    cursor: pointer;
+  }
+  .entry-card:active { opacity: 0.8; }
+  .entry-card + .entry-card { margin-top: 10px; }
+  .entry-main { flex: 1; min-width: 0; }
+  .entry-top { display: flex; align-items: center; gap: 8px; }
+  .entry-symbol { font-weight: 700; font-size: 15px; }
+  .entry-strategy {
+    font-size: 12.5px; color: var(--text-muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .entry-date {
+    margin-top: 3px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-faint);
+  }
+  .entry-side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+  .entry-r { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--text-muted); }
+  .entry-r.win { color: var(--win); }
+  .entry-r.loss { color: var(--loss); }
+  .entry-chevron { flex: none; color: var(--text-faint); }
+
+  .badge {
+    display: inline-flex; align-items: center;
+    border-radius: var(--radius-pill);
+    padding: 3px 9px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+  .badge-win { background: rgba(48,214,138,0.14); color: var(--win); }
+  .badge-loss { background: rgba(239,106,95,0.14); color: var(--loss); }
+  .badge-breakeven { background: rgba(240,149,74,0.16); color: var(--breakeven); }
+
+  /* Tab bar */
+  .tabbar {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    height: calc(var(--tabbar-h) + var(--safe-bottom));
+    padding-bottom: var(--safe-bottom);
+    display: flex;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    z-index: 20;
+    user-select: none;
+  }
+  .tab-btn {
+    -webkit-appearance: none;
+    appearance: none;
+    background: none;
+    border: none;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-height: 44px;
+    color: var(--text-faint);
+    cursor: pointer;
+  }
+  .tab-btn .lbl { font-size: 10.5px; font-weight: 700; letter-spacing: 0.02em; }
+  .tab-btn.is-active { color: var(--accent); }
+  .tab-btn.tab-fab-wrap { justify-content: flex-start; padding-top: 2px; }
+  .tab-fab {
+    width: 42px; height: 42px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--accent-ink);
+    display: flex; align-items: center; justify-content: center;
+    margin-top: -14px;
+    box-shadow: 0 6px 16px rgba(48,214,138,0.35);
+  }
+  .tab-btn.tab-fab-wrap .lbl { color: var(--text-faint); }
+  .tab-btn.tab-fab-wrap.is-active .lbl { color: var(--accent); }
+
+  /* Modal */
+  .modal {
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+  }
+  .modal[hidden] { display: none; }
+  .modal-header {
+    flex: none;
+    padding-top: calc(var(--safe-top) + 14px);
+    padding-bottom: 14px;
+    padding-left: 18px;
+    padding-right: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+  }
+  .modal-header h2 { font-size: 17px; font-weight: 800; }
+  .icon-btn {
+    -webkit-appearance: none;
+    appearance: none;
+    background: none;
+    border: none;
+    width: 44px; height: 44px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .modal-body { flex: 1; overflow-y: auto; padding: 18px; }
+  .modal-footer {
+    flex: none;
+    display: flex;
+    gap: 10px;
+    padding: 14px 18px calc(14px + var(--safe-bottom));
+    border-top: 1px solid var(--border);
+    background: var(--bg);
+  }
+  .modal-footer .btn-primary { flex: 1; }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 14px);
+    transform: translate(-50%, 8px);
+    background: var(--surface-2);
+    border: 1px solid var(--border-strong);
+    color: var(--text);
+    font-size: 13.5px;
+    font-weight: 600;
+    padding: 10px 18px;
+    border-radius: var(--radius-pill);
+    z-index: 50;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease, transform 0.18s ease;
+  }
+  .toast.is-visible { opacity: 1; transform: translate(-50%, 0); }
+
+  @media (min-width: 640px) {
+    .screen, .modal-body { max-width: 480px; margin-left: auto; margin-right: auto; width: 100%; }
+    .topbar > * { max-width: 480px; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header class="topbar">
+    <svg class="brand-mark" width="26" height="26" viewBox="0 0 512 512" aria-hidden="true">
+      <rect width="512" height="512" rx="118" fill="#30d68a"/>
+      <path d="M146 274 L224 352 L390 176" stroke="#0a0a0a" stroke-width="58" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    </svg>
+    <span class="brand-name">Dry Run</span>
+  </header>
+
+  <main>
+
+    <section id="screen-dashboard" class="screen active">
+      <div id="dashboardEmpty" class="empty-state" hidden>
+        <p>No forward tests logged yet.<br>Log your first one to see your win rate.</p>
+        <button class="btn btn-primary" id="emptyStateLogBtn" type="button">Log Your First Test</button>
+      </div>
+
+      <div id="dashboardContent" hidden>
+        <div class="card hero">
+          <div class="hero-value" id="heroWinRate">—</div>
+          <div class="hero-label">Win Rate</div>
+        </div>
+
+        <div class="stat-grid">
+          <div class="stat-tile">
+            <div class="n" id="statTotal">0</div>
+            <div class="l">Total</div>
+          </div>
+          <div class="stat-tile win">
+            <div class="n" id="statWins">0</div>
+            <div class="l">Wins</div>
+          </div>
+          <div class="stat-tile loss">
+            <div class="n" id="statLosses">0</div>
+            <div class="l">Losses</div>
+          </div>
+          <div class="stat-tile breakeven">
+            <div class="n" id="statBreakeven">0</div>
+            <div class="l">B/E</div>
+          </div>
+        </div>
+
+        <div class="section-label">By Strategy</div>
+        <div id="strategyList"></div>
+      </div>
+    </section>
+
+    <section id="screen-log" class="screen">
+      <h1 class="screen-title">Log a Test</h1>
+      <div class="form-error" id="logFormError"></div>
+      <form id="logForm" novalidate></form>
+    </section>
+
+    <section id="screen-history" class="screen">
+      <h1 class="screen-title">History</h1>
+      <div class="search-wrap">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"/><line x1="15.3" y1="15.3" x2="20" y2="20"/></svg>
+        <input type="text" class="input" id="historySearch" placeholder="Search symbol, strategy, notes" autocomplete="off">
+        <button class="search-clear" id="historySearchClear" type="button" aria-label="Clear search">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="chip-row" id="historyFilterChips">
+        <button class="chip is-active" data-filter="all" type="button">All</button>
+        <button class="chip" data-filter="win" type="button">Win</button>
+        <button class="chip" data-filter="loss" type="button">Loss</button>
+        <button class="chip" data-filter="breakeven" type="button">B/E</button>
+      </div>
+      <div id="historyList"></div>
+      <div id="historyEmpty" class="empty-state" hidden>
+        <p>No tests match.</p>
+      </div>
+    </section>
+
+  </main>
+
+  <nav class="tabbar">
+    <button class="tab-btn is-active" data-tab="dashboard" type="button">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="4" y="12" width="4" height="8" rx="1.3"/><rect x="10" y="7" width="4" height="13" rx="1.3"/><rect x="16" y="3" width="4" height="17" rx="1.3"/></svg>
+      <span class="lbl">Dashboard</span>
+    </button>
+    <button class="tab-btn tab-fab-wrap" data-tab="log" type="button">
+      <span class="tab-fab">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </span>
+      <span class="lbl">Log</span>
+    </button>
+    <button class="tab-btn" data-tab="history" type="button">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5l3.2 2"/></svg>
+      <span class="lbl">History</span>
+    </button>
+  </nav>
+
+  <div class="modal" id="editModal" hidden>
+    <div class="modal-header">
+      <h2>Edit Test</h2>
+      <button class="icon-btn" id="editCloseBtn" type="button" aria-label="Close">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="form-error" id="editFormError"></div>
+      <form id="editForm" novalidate></form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-danger-ghost" id="editDeleteBtn" type="button">Delete</button>
+      <button class="btn btn-primary" id="editSaveBtn" type="button">Save Changes</button>
+    </div>
+  </div>
+
+  <datalist id="strategyOptions"></datalist>
+
+  <div class="toast" id="toast"></div>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var STORAGE_KEY = 'dryrun_entries_v1';
+
+  function uid() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return 'id-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+  }
+
+  function todayISO() {
+    var d = new Date();
+    var local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 10);
+  }
+
+  function loadEntries() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return [];
+      var parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveEntries() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+  }
+
+  var entries = loadEntries();
+  var currentTab = 'dashboard';
+  var historyFilter = 'all';
+  var historyQuery = '';
+
+  // ---------- form markup (shared by Log tab + Edit modal) ----------
+
+  function fieldMarkup(prefix) {
+    return (
+      '<div class="field">' +
+        '<label for="' + prefix + '-date">Date</label>' +
+        '<input class="input" type="date" id="' + prefix + '-date" required>' +
+      '</div>' +
+      '<div class="field">' +
+        '<label for="' + prefix + '-symbol">Symbol / Instrument</label>' +
+        '<input class="input" type="text" id="' + prefix + '-symbol" placeholder="e.g. ES, AAPL, EURUSD" autocomplete="off" autocapitalize="characters" required>' +
+      '</div>' +
+      '<div class="field">' +
+        '<label for="' + prefix + '-strategy">Strategy / Setup</label>' +
+        '<input class="input" type="text" id="' + prefix + '-strategy" list="strategyOptions" placeholder="e.g. Breakout, Pullback" autocomplete="off" required>' +
+      '</div>' +
+      '<div class="field">' +
+        '<label>Result</label>' +
+        '<div class="segmented" id="' + prefix + '-result" role="radiogroup">' +
+          '<button type="button" class="seg-btn" data-value="win">Win</button>' +
+          '<button type="button" class="seg-btn" data-value="loss">Loss</button>' +
+          '<button type="button" class="seg-btn" data-value="breakeven">B/E</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="field">' +
+        '<label for="' + prefix + '-rmultiple">R-Multiple <span style="text-transform:none;opacity:.7">(optional)</span></label>' +
+        '<input class="input" type="number" id="' + prefix + '-rmultiple" placeholder="e.g. 2.3 or -1" step="0.1" inputmode="decimal">' +
+      '</div>' +
+      '<div class="field">' +
+        '<label for="' + prefix + '-notes">Notes <span style="text-transform:none;opacity:.7">(optional)</span></label>' +
+        '<textarea class="input" id="' + prefix + '-notes" placeholder="What happened, what you learned…"></textarea>' +
+      '</div>'
+    );
+  }
+
+  document.getElementById('logForm').innerHTML = fieldMarkup('log') +
+    '<button type="submit" class="btn btn-primary btn-block">Save Test</button>';
+  document.getElementById('editForm').innerHTML = fieldMarkup('edit');
+
+  function wireResultButtons(prefix) {
+    var group = document.getElementById(prefix + '-result');
+    group.addEventListener('click', function (e) {
+      var btn = e.target.closest('.seg-btn');
+      if (!btn) return;
+      Array.prototype.forEach.call(group.querySelectorAll('.seg-btn'), function (b) {
+        b.classList.toggle('is-selected', b === btn);
+      });
+      group.dataset.value = btn.dataset.value;
+    });
+  }
+  wireResultButtons('log');
+  wireResultButtons('edit');
+
+  function getResultValue(prefix) {
+    return document.getElementById(prefix + '-result').dataset.value || '';
+  }
+  function setResultValue(prefix, value) {
+    var group = document.getElementById(prefix + '-result');
+    group.dataset.value = value || '';
+    Array.prototype.forEach.call(group.querySelectorAll('.seg-btn'), function (b) {
+      b.classList.toggle('is-selected', b.dataset.value === value);
+    });
+  }
+
+  function readForm(prefix) {
+    return {
+      date: document.getElementById(prefix + '-date').value,
+      symbol: document.getElementById(prefix + '-symbol').value.trim(),
+      strategy: document.getElementById(prefix + '-strategy').value.trim(),
+      result: getResultValue(prefix),
+      rMultiple: document.getElementById(prefix + '-rmultiple').value,
+      notes: document.getElementById(prefix + '-notes').value.trim()
+    };
+  }
+
+  function fillForm(prefix, entry) {
+    document.getElementById(prefix + '-date').value = entry.date;
+    document.getElementById(prefix + '-symbol').value = entry.symbol;
+    document.getElementById(prefix + '-strategy').value = entry.strategy;
+    setResultValue(prefix, entry.result);
+    document.getElementById(prefix + '-rmultiple').value = entry.rMultiple === null || entry.rMultiple === undefined ? '' : entry.rMultiple;
+    document.getElementById(prefix + '-notes').value = entry.notes || '';
+  }
+
+  function clearForm(prefix) {
+    document.getElementById(prefix + '-date').value = todayISO();
+    document.getElementById(prefix + '-symbol').value = '';
+    document.getElementById(prefix + '-strategy').value = '';
+    setResultValue(prefix, '');
+    document.getElementById(prefix + '-rmultiple').value = '';
+    document.getElementById(prefix + '-notes').value = '';
+  }
+
+  function validateForm(data) {
+    if (!data.date) return 'Pick a date.';
+    if (!data.symbol) return 'Enter a symbol or instrument.';
+    if (!data.strategy) return 'Enter a strategy / setup tag.';
+    if (!data.result) return 'Select a result.';
+    if (data.rMultiple !== '' && isNaN(parseFloat(data.rMultiple))) return 'R-Multiple must be a number.';
+    return null;
+  }
+
+  function showFormError(prefix, msg) {
+    var el = document.getElementById(prefix + 'FormError');
+    el.textContent = msg;
+    el.classList.add('is-visible');
+  }
+  function hideFormError(prefix) {
+    document.getElementById(prefix + 'FormError').classList.remove('is-visible');
+  }
+
+  // ---------- entry symbol uppercasing ----------
+  ['log-symbol', 'edit-symbol'].forEach(function (id) {
+    document.getElementById(id).addEventListener('blur', function (e) {
+      e.target.value = e.target.value.toUpperCase();
+    });
+  });
+
+  // ---------- Log form submit ----------
+  document.getElementById('logForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var data = readForm('log');
+    var err = validateForm(data);
+    if (err) { showFormError('log', err); return; }
+    hideFormError('log');
+
+    entries.push({
+      id: uid(),
+      date: data.date,
+      symbol: data.symbol.toUpperCase(),
+      strategy: data.strategy,
+      result: data.result,
+      rMultiple: data.rMultiple === '' ? null : parseFloat(data.rMultiple),
+      notes: data.notes,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    });
+    saveEntries();
+    clearForm('log');
+    renderAll();
+    toast('Test saved');
+  });
+
+  // ---------- Edit modal ----------
+  var editingId = null;
+
+  function openEditModal(id) {
+    var entry = entries.find(function (e) { return e.id === id; });
+    if (!entry) return;
+    editingId = id;
+    hideFormError('edit');
+    fillForm('edit', entry);
+    document.getElementById('editModal').hidden = false;
+  }
+  function closeEditModal() {
+    editingId = null;
+    document.getElementById('editModal').hidden = true;
+  }
+  document.getElementById('editCloseBtn').addEventListener('click', closeEditModal);
+
+  document.getElementById('editSaveBtn').addEventListener('click', function () {
+    var data = readForm('edit');
+    var err = validateForm(data);
+    if (err) { showFormError('edit', err); return; }
+    hideFormError('edit');
+
+    var entry = entries.find(function (e) { return e.id === editingId; });
+    if (!entry) return;
+    entry.date = data.date;
+    entry.symbol = data.symbol.toUpperCase();
+    entry.strategy = data.strategy;
+    entry.result = data.result;
+    entry.rMultiple = data.rMultiple === '' ? null : parseFloat(data.rMultiple);
+    entry.notes = data.notes;
+    entry.updatedAt = Date.now();
+
+    saveEntries();
+    closeEditModal();
+    renderAll();
+    toast('Changes saved');
+  });
+
+  document.getElementById('editDeleteBtn').addEventListener('click', function () {
+    if (!editingId) return;
+    if (!window.confirm('Delete this forward test? This can\'t be undone.')) return;
+    entries = entries.filter(function (e) { return e.id !== editingId; });
+    saveEntries();
+    closeEditModal();
+    renderAll();
+    toast('Test deleted');
+  });
+
+  // ---------- tabs ----------
+  function switchTab(tab) {
+    currentTab = tab;
+    Array.prototype.forEach.call(document.querySelectorAll('.screen'), function (s) {
+      s.classList.toggle('active', s.id === 'screen-' + tab);
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function (b) {
+      b.classList.toggle('is-active', b.dataset.tab === tab);
+    });
+    document.querySelector('main').scrollTop = 0;
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function (b) {
+    b.addEventListener('click', function () { switchTab(b.dataset.tab); });
+  });
+  document.getElementById('emptyStateLogBtn').addEventListener('click', function () { switchTab('log'); });
+
+  // ---------- history search / filter ----------
+  document.getElementById('historySearch').addEventListener('input', function (e) {
+    historyQuery = e.target.value;
+    document.getElementById('historySearchClear').classList.toggle('is-visible', historyQuery.length > 0);
+    renderHistory();
+  });
+  document.getElementById('historySearchClear').addEventListener('click', function () {
+    historyQuery = '';
+    document.getElementById('historySearch').value = '';
+    document.getElementById('historySearchClear').classList.remove('is-visible');
+    renderHistory();
+  });
+  document.getElementById('historyFilterChips').addEventListener('click', function (e) {
+    var chip = e.target.closest('.chip');
+    if (!chip) return;
+    historyFilter = chip.dataset.filter;
+    Array.prototype.forEach.call(document.querySelectorAll('#historyFilterChips .chip'), function (c) {
+      c.classList.toggle('is-active', c === chip);
+    });
+    renderHistory();
+  });
+  document.getElementById('historyList').addEventListener('click', function (e) {
+    var card = e.target.closest('[data-id]');
+    if (!card) return;
+    openEditModal(card.dataset.id);
+  });
+
+  // ---------- rendering ----------
+  function escapeHtml(str) {
+    var div = document.createElement('div');
+    div.textContent = str == null ? '' : str;
+    return div.innerHTML;
+  }
+
+  function formatR(n) {
+    if (n === null || n === undefined || isNaN(n)) return '—';
+    var sign = n > 0 ? '+' : '';
+    return sign + n.toFixed(1) + 'R';
+  }
+
+  function resultLabel(r) {
+    return r === 'win' ? 'Win' : r === 'loss' ? 'Loss' : 'B/E';
+  }
+
+  function sortedEntries(list) {
+    return list.slice().sort(function (a, b) {
+      if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+      return b.createdAt - a.createdAt;
+    });
+  }
+
+  function renderDashboard() {
+    var total = entries.length;
+    document.getElementById('dashboardEmpty').hidden = total > 0;
+    document.getElementById('dashboardContent').hidden = total === 0;
+    if (total === 0) return;
+
+    var wins = entries.filter(function (e) { return e.result === 'win'; }).length;
+    var losses = entries.filter(function (e) { return e.result === 'loss'; }).length;
+    var breakevens = entries.filter(function (e) { return e.result === 'breakeven'; }).length;
+    var winRate = (wins / total) * 100;
+
+    document.getElementById('heroWinRate').textContent = winRate.toFixed(1) + '%';
+    document.getElementById('heroWinRate').classList.remove('is-empty');
+    document.getElementById('statTotal').textContent = total;
+    document.getElementById('statWins').textContent = wins;
+    document.getElementById('statLosses').textContent = losses;
+    document.getElementById('statBreakeven').textContent = breakevens;
+
+    var byStrategy = {};
+    entries.forEach(function (e) {
+      var key = e.strategy || 'Untagged';
+      if (!byStrategy[key]) byStrategy[key] = { total: 0, wins: 0 };
+      byStrategy[key].total++;
+      if (e.result === 'win') byStrategy[key].wins++;
+    });
+    var rows = Object.keys(byStrategy).map(function (tag) {
+      var s = byStrategy[tag];
+      return { tag: tag, count: s.total, winRate: (s.wins / s.total) * 100 };
+    }).sort(function (a, b) { return b.count - a.count; });
+
+    document.getElementById('strategyList').innerHTML = rows.map(function (r) {
+      return (
+        '<div class="strategy-row">' +
+          '<div class="strategy-row-top">' +
+            '<div class="strategy-name">' + escapeHtml(r.tag) + '</div>' +
+            '<div class="strategy-meta"><b>' + r.winRate.toFixed(0) + '%</b> · ' + r.count + ' test' + (r.count === 1 ? '' : 's') + '</div>' +
+          '</div>' +
+          '<div class="strategy-bar"><div class="strategy-bar-fill" style="width:' + r.winRate.toFixed(1) + '%"></div></div>' +
+        '</div>'
+      );
+    }).join('');
+  }
+
+  function renderHistory() {
+    var q = historyQuery.trim().toLowerCase();
+    var filtered = entries.filter(function (e) {
+      if (historyFilter !== 'all' && e.result !== historyFilter) return false;
+      if (!q) return true;
+      return (e.symbol || '').toLowerCase().indexOf(q) !== -1 ||
+             (e.strategy || '').toLowerCase().indexOf(q) !== -1 ||
+             (e.notes || '').toLowerCase().indexOf(q) !== -1;
+    });
+    filtered = sortedEntries(filtered);
+
+    var listEl = document.getElementById('historyList');
+    var emptyEl = document.getElementById('historyEmpty');
+
+    if (filtered.length === 0) {
+      listEl.innerHTML = '';
+      emptyEl.hidden = entries.length === 0;
+      emptyEl.querySelector('p').textContent = entries.length === 0
+        ? 'No forward tests logged yet.'
+        : 'No tests match.';
+      emptyEl.hidden = false;
+      return;
+    }
+    emptyEl.hidden = true;
+
+    listEl.innerHTML = filtered.map(function (e) {
+      var rClass = e.result === 'win' ? 'win' : e.result === 'loss' ? 'loss' : '';
+      return (
+        '<div class="entry-card" data-id="' + e.id + '">' +
+          '<div class="entry-main">' +
+            '<div class="entry-top">' +
+              '<span class="entry-symbol">' + escapeHtml(e.symbol) + '</span>' +
+              '<span class="badge badge-' + e.result + '">' + resultLabel(e.result) + '</span>' +
+            '</div>' +
+            '<div class="entry-strategy">' + escapeHtml(e.strategy) + '</div>' +
+            '<div class="entry-date">' + escapeHtml(e.date) + '</div>' +
+          '</div>' +
+          '<div class="entry-side">' +
+            '<div class="entry-r ' + rClass + '">' + formatR(e.rMultiple) + '</div>' +
+          '</div>' +
+          '<svg class="entry-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>' +
+        '</div>'
+      );
+    }).join('');
+  }
+
+  function renderStrategyOptions() {
+    var tags = Array.from(new Set(entries.map(function (e) { return e.strategy; }).filter(Boolean)));
+    tags.sort(function (a, b) { return a.localeCompare(b); });
+    document.getElementById('strategyOptions').innerHTML = tags.map(function (t) {
+      return '<option value="' + escapeHtml(t) + '">';
+    }).join('');
+  }
+
+  function renderAll() {
+    renderDashboard();
+    renderHistory();
+    renderStrategyOptions();
+  }
+
+  // ---------- toast ----------
+  var toastTimer = null;
+  function toast(msg) {
+    var el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('is-visible');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.classList.remove('is-visible'); }, 1600);
+  }
+
+  // ---------- init ----------
+  document.getElementById('log-date').value = todayISO();
+  renderAll();
+
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('./sw.js').catch(function () {});
+    });
+  }
+})();
+</script>
+</body>
+</html>
