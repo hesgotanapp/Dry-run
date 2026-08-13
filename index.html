@@ -233,6 +233,50 @@
     border-radius: var(--radius-pill);
   }
 
+  /* Equity curve */
+  .equity-card { margin-top: 24px; padding: 18px 18px 16px; }
+  .equity-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .equity-title { font-weight: 800; font-size: 15px; }
+  .equity-full-link {
+    -webkit-appearance: none;
+    appearance: none;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    cursor: pointer;
+    min-height: 44px;
+    padding: 0 2px;
+    display: inline-flex;
+    align-items: center;
+  }
+  .equity-chart svg { display: block; width: 100%; height: auto; }
+  .equity-dates {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-faint);
+  }
+  .equity-stat-row {
+    margin-top: 18px;
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .equity-stat-row b { color: var(--accent); font-size: 16px; }
+
   /* Empty states */
   .empty-state {
     text-align: center;
@@ -620,6 +664,18 @@
 
         <div class="section-label">By Strategy</div>
         <div id="strategyList"></div>
+
+        <div class="card equity-card">
+          <div class="equity-head">
+            <div class="equity-title">Equity Curve</div>
+            <button type="button" class="equity-full-link" id="equityFullBtn">Full View →</button>
+          </div>
+          <div class="equity-chart" id="equityChartCompact"></div>
+          <div class="equity-dates">
+            <span id="equityDateStart"></span>
+            <span id="equityDateEnd"></span>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -683,6 +739,25 @@
     <div class="modal-footer">
       <button class="btn btn-danger-ghost" id="editDeleteBtn" type="button">Delete</button>
       <button class="btn btn-primary" id="editSaveBtn" type="button">Save Changes</button>
+    </div>
+  </div>
+
+  <div class="modal" id="equityModal" hidden>
+    <div class="modal-header">
+      <h2>Equity Curve</h2>
+      <button class="icon-btn" id="equityCloseBtn" type="button" aria-label="Close">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="card equity-card">
+        <div class="equity-chart" id="equityChartFull"></div>
+        <div class="equity-dates">
+          <span id="equityDateStartFull"></span>
+          <span id="equityDateEndFull"></span>
+        </div>
+        <div class="equity-stat-row">Cumulative <b id="equityTotalR"></b> · <span id="equityCount"></span></div>
+      </div>
     </div>
   </div>
 
@@ -1171,6 +1246,83 @@
     });
   }
 
+  function formatDateLabel(iso) {
+    var d = new Date(iso + 'T00:00:00');
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  // ---------- equity curve ----------
+
+  function buildEquitySeries() {
+    var chronological = entries.slice().sort(function (a, b) {
+      if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+      return a.createdAt - b.createdAt;
+    });
+    var running = 0;
+    return chronological.map(function (e) {
+      running += (typeof e.rMultiple === 'number' ? e.rMultiple : 0);
+      return { date: e.date, value: running };
+    });
+  }
+
+  function equityGeometry(series, width, height, padding) {
+    var values = series.map(function (p) { return p.value; });
+    var min = Math.min(0, Math.min.apply(null, values));
+    var max = Math.max(0, Math.max.apply(null, values));
+    if (min === max) { min -= 1; max += 1; }
+    var innerW = width - padding * 2;
+    var innerH = height - padding * 2;
+    function xAt(i) { return series.length === 1 ? width / 2 : padding + (i / (series.length - 1)) * innerW; }
+    function yAt(v) { return padding + innerH - ((v - min) / (max - min)) * innerH; }
+    var points = series.map(function (p, i) { return [xAt(i), yAt(p.value)]; });
+    var linePath = points.map(function (pt, i) { return (i === 0 ? 'M' : 'L') + pt[0].toFixed(1) + ',' + pt[1].toFixed(1); }).join(' ');
+    var floorY = (height - padding).toFixed(1);
+    var fillPath = linePath +
+      ' L' + points[points.length - 1][0].toFixed(1) + ',' + floorY +
+      ' L' + points[0][0].toFixed(1) + ',' + floorY + ' Z';
+    return { linePath: linePath, fillPath: fillPath, zeroY: yAt(0), lastPoint: points[points.length - 1] };
+  }
+
+  function renderEquitySvg(containerId, series, width, height) {
+    var el = document.getElementById(containerId);
+    if (!el || series.length === 0) { if (el) el.innerHTML = ''; return; }
+    var padding = 12;
+    var geo = equityGeometry(series, width, height, padding);
+    var gradId = containerId + 'Grad';
+    el.innerHTML =
+      '<svg viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="none">' +
+        '<defs><linearGradient id="' + gradId + '" x1="0" y1="0" x2="0" y2="1">' +
+          '<stop offset="0%" stop-color="#30d68a" stop-opacity="0.32"/>' +
+          '<stop offset="100%" stop-color="#30d68a" stop-opacity="0"/>' +
+        '</linearGradient></defs>' +
+        '<line x1="' + padding + '" y1="' + geo.zeroY.toFixed(1) + '" x2="' + (width - padding) + '" y2="' + geo.zeroY.toFixed(1) + '" stroke="rgba(255,255,255,0.16)" stroke-width="1" stroke-dasharray="4 4"/>' +
+        '<path d="' + geo.fillPath + '" fill="url(#' + gradId + ')" stroke="none"/>' +
+        '<path d="' + geo.linePath + '" fill="none" stroke="#30d68a" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>' +
+        '<circle cx="' + geo.lastPoint[0].toFixed(1) + '" cy="' + geo.lastPoint[1].toFixed(1) + '" r="4.5" fill="#30d68a"/>' +
+      '</svg>';
+  }
+
+  function renderEquityCard() {
+    var series = buildEquitySeries();
+    renderEquitySvg('equityChartCompact', series, 400, 140);
+    document.getElementById('equityDateStart').textContent = formatDateLabel(series[0].date);
+    document.getElementById('equityDateEnd').textContent = formatDateLabel(series[series.length - 1].date);
+  }
+
+  document.getElementById('equityFullBtn').addEventListener('click', function () {
+    var series = buildEquitySeries();
+    renderEquitySvg('equityChartFull', series, 400, 260);
+    document.getElementById('equityDateStartFull').textContent = formatDateLabel(series[0].date);
+    document.getElementById('equityDateEndFull').textContent = formatDateLabel(series[series.length - 1].date);
+    document.getElementById('equityTotalR').textContent = formatR(series[series.length - 1].value);
+    document.getElementById('equityCount').textContent = series.length + ' test' + (series.length === 1 ? '' : 's');
+    document.getElementById('equityModal').hidden = false;
+  });
+  document.getElementById('equityCloseBtn').addEventListener('click', function () {
+    document.getElementById('equityModal').hidden = true;
+  });
+
   function renderDashboard() {
     var total = entries.length;
     document.getElementById('dashboardEmpty').hidden = total > 0;
@@ -1212,6 +1364,8 @@
         '</div>'
       );
     }).join('');
+
+    renderEquityCard();
   }
 
   var historyThumbUrls = [];
