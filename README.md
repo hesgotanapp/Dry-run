@@ -1,6 +1,6 @@
 # Dry Run — Forward Testing Tracker
 
-A standalone PWA for logging and reviewing forward-testing (paper/sim trading) results. Manual entry only — no broker integration, no accounts, no backend. Everything is stored locally on-device via `localStorage`.
+A standalone PWA for logging and reviewing forward-testing (paper/sim trading) results. Manual entry only — no broker integration, no accounts, no backend. Everything is stored locally on-device via IndexedDB (entries, including attached chart screenshots, live in an `entries` object store — screenshots are compressed client-side to JPEG before saving).
 
 Built to run installed on an iPhone home screen (Safari → Share → Add to Home Screen).
 
