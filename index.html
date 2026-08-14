@@ -1332,7 +1332,7 @@
     var wins = entries.filter(function (e) { return e.result === 'win'; }).length;
     var losses = entries.filter(function (e) { return e.result === 'loss'; }).length;
     var breakevens = entries.filter(function (e) { return e.result === 'breakeven'; }).length;
-    var winRate = (wins / total) * 100;
+    var winRate = ((wins + breakevens) / total) * 100;
 
     document.getElementById('heroWinRate').textContent = winRate.toFixed(1) + '%';
     document.getElementById('heroWinRate').classList.remove('is-empty');
@@ -1346,7 +1346,7 @@
       var key = e.strategy || 'Untagged';
       if (!byStrategy[key]) byStrategy[key] = { total: 0, wins: 0 };
       byStrategy[key].total++;
-      if (e.result === 'win') byStrategy[key].wins++;
+      if (e.result === 'win' || e.result === 'breakeven') byStrategy[key].wins++;
     });
     var rows = Object.keys(byStrategy).map(function (tag) {
       var s = byStrategy[tag];
