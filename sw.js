@@ -1,4 +1,4 @@
-const CACHE_NAME = 'dryrun-v4';
+const CACHE_NAME = 'dryrun-v5';
 const PRECACHE_URLS = [
   './',
   './index.html',
