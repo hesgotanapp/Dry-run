@@ -160,6 +160,32 @@
     text-transform: uppercase;
     color: var(--text-muted);
   }
+  .hero-sub {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 8px;
+  }
+  .hero-sub-value {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 18px;
+    color: var(--text);
+  }
+  .hero-sub-value.win { color: var(--win); }
+  .hero-sub-value.loss { color: var(--loss); }
+  .hero-sub-value.breakeven { color: var(--breakeven); }
+  .hero-sub-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
 
   .stat-grid {
     display: grid;
@@ -660,6 +686,10 @@
         <div class="card hero">
           <div class="hero-value" id="heroWinRate">—</div>
           <div class="hero-label">Win Rate</div>
+          <div class="hero-sub">
+            <span class="hero-sub-value" id="heroAvgRValue">—</span>
+            <span class="hero-sub-label">Avg R-Multiple</span>
+          </div>
         </div>
 
         <div class="stat-grid">
@@ -1497,6 +1527,17 @@
     document.getElementById('statWins').textContent = wins;
     document.getElementById('statLosses').textContent = losses;
     document.getElementById('statBreakeven').textContent = breakevens;
+
+    var rValues = entries
+      .map(function (e) { return e.rMultiple; })
+      .filter(function (v) { return typeof v === 'number' && !isNaN(v); });
+    var avgR = rValues.length > 0
+      ? rValues.reduce(function (a, b) { return a + b; }, 0) / rValues.length
+      : null;
+    var avgRClass = avgR === null ? '' : avgR > 0 ? 'win' : avgR < 0 ? 'loss' : 'breakeven';
+    var avgRValueEl = document.getElementById('heroAvgRValue');
+    avgRValueEl.textContent = formatR(avgR);
+    avgRValueEl.className = 'hero-sub-value' + (avgRClass ? ' ' + avgRClass : '');
 
     var byStrategy = {};
     entries.forEach(function (e) {
