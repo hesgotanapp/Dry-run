@@ -13,7 +13,7 @@ The score is NOT a probability of pumping. It measures:
                     age, price action that is not an obvious spike-and-dump
 Not financial advice. Most new meme coins go to zero.
 
-Usage: python3 memecoin_screener.py [--top 8] [--min-liq 15000] [--max-age-h 72]
+Only pump.fun launches (mint ends in "pump") by default.\n\nUsage: python3 memecoin_screener.py [--top 8] [--min-liq 15000] [--max-age-h 72]
 """
 import argparse
 import json
@@ -174,6 +174,8 @@ def main():
     ap.add_argument("--min-liq", type=float, default=15000)
     ap.add_argument("--max-age-h", type=float, default=72)
     ap.add_argument("--min-age-h", type=float, default=1)
+    ap.add_argument("--all-launchpads", dest="pumpfun_only", action="store_false",
+                    help="include tokens not launched on pump.fun (default: pump.fun only)")
     a = ap.parse_args()
 
     addrs = candidates()
@@ -183,6 +185,8 @@ def main():
     for addr, p in pairs.items():
         liq = (p.get("liquidity") or {}).get("usd") or 0
         age_h = (time.time() * 1000 - (p.get("pairCreatedAt") or 0)) / 3.6e6
+        if a.pumpfun_only and not addr.endswith("pump"):
+            continue  # pump.fun mints always end in "pump"
         if liq >= a.min_liq and a.min_age_h <= age_h <= a.max_age_h:
             pool.append((addr, p))
     print(f"[filtered] {len(pool)} with liq>=${a.min_liq:,.0f}, age {a.min_age_h}-{a.max_age_h}h",
